@@ -25,7 +25,8 @@ public $config = array(
 	'cookie_path'   => '/',
 	'cookie_domain' => '', // '' = vhost
 	'session_name' => 'sid',
-	'session_hash' => 'sha224' // 0 - md5, 1 - sha1, sha224, sha256, sha512 etc
+	'session_hash' => 'sha224', // 0 - md5, 1 - sha1, sha224, sha256, sha512 etc
+	'gc_enabled' => TRUE
 );
 
 public function setConfig($kv_or_k,$v = null){
@@ -38,8 +39,6 @@ public function setConfig($kv_or_k,$v = null){
 private $db;
 private $collection;
 private $row;
-public $_id;
-public $sid;
 
 public function __construct($mongo){
 	$this->db = $mongo->selectDB($this->config['db']);
@@ -48,7 +47,7 @@ public function __construct($mongo){
 	ini_set('session.name',			$this->config['session_name']);
         ini_set('session.auto_start',           0);
         ini_set('session.gc_probability',       1);
-        ini_set('session.gc_divisor',           1000);
+        ini_set('session.gc_divisor',           100);
         ini_set('session.gc_maxlifetime',       $this->config['expire']);
         ini_set('session.referer_check',        '');
         ini_set('session.entropy_file',         '/dev/urandom');
@@ -76,62 +75,53 @@ public function __construct($mongo){
 }
 
 public function __destruct(){
+
 }
 
 
 function gc($maxlifetime){
 /*
-session gc...
-load balanced delete
-every few requests hit mongo with a delete for expired records
-needs index on time
-
 note: if you do a delete for all documents that have an expiry less than current time you will hold a lock while all delete.
       better to find each and delete one by one
-
       See cronjob/gearman process for example
       With gearman use coalescing to make sure multiple tasks don't run at once...
- 
 */
+  if ($this->config['gc_enabled']) {
+    $this->collection->remove(array('expiry' => array('$lt' => time())));
+  }
 }
 
 function printrow() {
-print_r($this->row);
+  print_r($this->row);
 }
 
 function open($save_path, $session_name){
-//echo "open: $save_path / $session_name\n";
   return(true);
 }
 
 function close(){
-//echo "close\n";
   return(true);
 }
 
 function read($id){
-//echo "read: $id\n";
   $this->row = $this->collection->findOne(array('_id'=>$id));
-  //echo "row : ".print_r($this->row,1);
   if (!$this->row) {
     $this->collection->insert(array('_id'=>$id, 'active'=> 1, 'data'=>'', 'expiry'=>(time()+$this->config['expire'])));
   }
-  //echo "row : ".print_r($this->row,1);
   return $this->row['data'];
 }
 
 function write($id, $sess_data){
-//echo "write: $id / $sess_data\n";
-$expiry=time()+$this->config['expire'];
-$fields = array('update' => time(),'expiry' => $expiry );
-$fields["data"] = $sess_data;
-$new_data = array('$set' => $fields);
-$this->collection->ensureIndex(array("expiry" => 1)); // not needed *every* time... but on dev systems...
-$this->collection->update(array('_id'=>$id),$new_data);
+  $expiry=time()+$this->config['expire'];
+  $fields = array('update' => time(),'expiry' => $expiry );
+  $fields["data"] = $sess_data;
+  $new_data = array('$set' => $fields);
+  $this->collection->ensureIndex(array("expiry" => 1)); // not needed *every* time... but on dev systems...
+  $this->collection->update(array('_id'=>$id),$new_data);
 }
 
 function destroy($id){
-$this->collection->remove(array('_id'=>$id));
+  $this->collection->remove(array('_id'=>$id));
   return(true);
 }
 
