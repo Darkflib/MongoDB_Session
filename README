@@ -85,3 +85,16 @@ Percentage of the requests served within a certain time (ms)
   99%    287
  100%    299 (longest request)
 
+Normal session handlers will lock the session until they can aquire exclusive write access to the session - This has the side-effect of causing pages to pause until a long winded request for the same session id releases the lock... 
+
+We aren't doing that in this handler, but it comes with a trade-off. It is possible for one request to read the session and before the changes are written back another request to read it again... Which can result in data loss.
+
+Request 1 - Read Session
+Request 2 - Read Session
+Request 2 - Write Session
+Request 1 - Write Session (overwriting changes from Request 2)
+
+Obviously this can happen far more easily in AJAX based apps where many requests with sessions enabled can be fired off at the same server at once... what we need is a read-only session... ( see new flag on contructor) :)
+
+If you do really need true consistancy, store it in the MongoDB datastore with its atomic ($set, $inc $push etc) operators - it is plenty fast enough for most requirements (well over 3000 requests a second (fetch, create if not exist, write) just in this session handler example code)
+

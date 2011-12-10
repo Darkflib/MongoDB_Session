@@ -1,7 +1,7 @@
 <?php 
 /*mongodb custom php session handler
-copyright 2010 ryan day
-modifications by Mike Preston (c) 2011
+(c) 2011 Mike Preston
+based on gist by ryan day 2010
 lgpl
 
 Changelog:
@@ -26,7 +26,8 @@ public $config = array(
 	'cookie_domain' => '', // '' = vhost
 	'session_name' => 'sid',
 	'session_hash' => 'sha224', // 0 - md5, 1 - sha1, sha224, sha256, sha512 etc
-	'gc_enabled' => TRUE
+	'gc_enabled' => TRUE,
+	'gc_add_index' => FALSE
 );
 
 public function setConfig($kv_or_k,$v = null){
@@ -39,15 +40,17 @@ public function setConfig($kv_or_k,$v = null){
 private $db;
 private $collection;
 private $row;
+private $readonly;
 
-public function __construct($mongo){
+public function __construct($mongo,$readonly=FALSE){
+// $readonly will disable writing back session data - great for ajax requests that don't need to write any session data and so avoid the race condition.
 	$this->db = $mongo->selectDB($this->config['db']);
 	$this->collection = new MongoCollection($this->db,$this->config['collection']);
 	
 	ini_set('session.name',			$this->config['session_name']);
         ini_set('session.auto_start',           0);
         ini_set('session.gc_probability',       1);
-        ini_set('session.gc_divisor',           100);
+        ini_set('session.gc_divisor',           1000);
         ini_set('session.gc_maxlifetime',       $this->config['expire']);
         ini_set('session.referer_check',        '');
         ini_set('session.entropy_file',         '/dev/urandom');
@@ -71,6 +74,7 @@ public function __construct($mongo){
             array(&$this, 'gc')
         );
 
+	$this->readonly=$readonly; 
 
 }
 
@@ -112,12 +116,17 @@ function read($id){
 }
 
 function write($id, $sess_data){
+if (!$this->readonly) {
   $expiry=time()+$this->config['expire'];
   $fields = array('update' => time(),'expiry' => $expiry );
   $fields["data"] = $sess_data;
   $new_data = array('$set' => $fields);
-  $this->collection->ensureIndex(array("expiry" => 1)); // not needed *every* time... but on dev systems...
+  if ($this->config['gc_add_index']) {
+    $this->collection->ensureIndex(array("expiry" => 1)); // not needed *every* time... but on dev systems...
+  }
   $this->collection->update(array('_id'=>$id),$new_data);
+}
+return(true);
 }
 
 function destroy($id){

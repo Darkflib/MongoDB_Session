@@ -7,9 +7,14 @@ lgpl
 
 require_once 'mongodb_session_handler.php';
 
+if (isset($_REQUEST['readonly'])) {
+  $readonly=TRUE;
+} else {
+  $readonly=FALSE;
+}
 
 $mongo = new Mongo();
-$mongo_session = new MongoSession($mongo);
+$mongo_session = new MongoSession($mongo,$readonly);
 session_start();
 
 echo session_id()."\n";
